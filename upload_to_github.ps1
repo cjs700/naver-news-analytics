@@ -89,9 +89,17 @@ try {
     if ($LASTEXITCODE -ne 0) { Write-Log "[실패] git commit 오류 (exit $LASTEXITCODE)"; exit 1 }
 
     # ── 7. 업로드 ──────────────────────────────────────────────
+    #  git push 는 정상 동작 중에도 진행상황을 stderr 로 출력한다.
+    #  ErrorActionPreference=Stop 상태에서 2>&1 로 받으면 PowerShell 이 이를
+    #  오류로 오인해 예외를 던지므로, 이 구간만 Continue 로 낮춘다.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $push = (& $GIT -C $DST push origin main 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "[실패] git push 오류 (exit $LASTEXITCODE): $push"
+    $pushExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+
+    if ($pushExit -ne 0) {
+        Write-Log "[실패] git push 오류 (exit $pushExit): $push"
         Write-Log "        GitHub 인증이 풀렸을 수 있습니다. gh auth status 로 확인하세요."
         exit 1
     }
