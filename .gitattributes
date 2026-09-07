@@ -1,0 +1,18 @@
+# 기본: 텍스트 파일은 저장소에 LF로 보관, 체크아웃 시 OS에 맞게 변환
+* text=auto
+
+# 배치파일은 반드시 CRLF (Windows cmd 가 LF 개행에서 오작동)
+*.bat text eol=crlf
+
+# 스크립트/데이터
+*.py   text
+*.md   text
+*.csv  text
+*.txt  text
+*.json text
+
+# 바이너리 (변환 금지)
+*.png  binary
+*.ttf  binary
+*.xlsx binary
+*.ipynb text
