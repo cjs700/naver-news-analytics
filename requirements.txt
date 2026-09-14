@@ -5,3 +5,4 @@ kiwipiepy>=0.18
 wordcloud>=1.9
 matplotlib>=3.8
 pandas>=2.0
+plotly>=5.18

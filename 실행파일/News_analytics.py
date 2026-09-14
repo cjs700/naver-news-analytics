@@ -31,12 +31,20 @@ News_analytics.py
            카테고리별/공통 의제/단독 키워드까지 풀어쓴 상세 리포트
          - 일간종합_인사이트_{YYYYMMDD}.csv : 종합·신문사별·카테고리별·조합별
            지표를 한 행씩 담은 집계용 표(감성지수 포함)
+    4-2) 하루 분석이 모두 끝나면 Trend_analytics.py 를 이어서 호출해, 그동안 쌓인
+       날짜들을 가로지르는 누적(시계열) 분석을 만든다 (News/누적분석/ 폴더).
+         - 키워드 시계열 / 최근 급상승·급감 키워드 / 감성지수 추이 /
+           언론사 간 공통·단독 의제 / 카테고리 감성 히트맵 + 마크다운 리포트
+         - 새로 크롤링하지 않고 이미 저장된 산출물만 읽으므로 네트워크 부담이 없다.
+         - `--no-trend` 옵션으로 끌 수 있고, 실패해도 당일 분석 결과에는 영향을 주지 않는다.
     5) 규칙 기반 인사이트 문장을 생성하여 CSV로 저장한다.
        (txt가 아닌 CSV로 저장하는 이유: 엑셀/BI 도구에서 바로 열람·집계하기 위함)
     6) 저장 경로: News/{YYYY}/{MM}/{DD}/{언론사}/{카테고리}/
        예) News/2026/08/31/조선일보/경제/
-    7) 여러 날짜의 insight_master.csv를 이어붙이면 시계열 키워드 트렌드 분석,
-       언론사 간 이슈 비교로 바로 확장할 수 있다 (README.md 8번 항목의 pandas 예시 참고).
+    7) insight_master.csv 는 날짜가 계속 누적되는 단일 파일이며, 키워드뿐 아니라
+       감성 지표(키워드종수/긍정총빈도/부정총빈도/감성지수)까지 한 행에 담는다.
+       이 한 파일만 pandas 로 읽어도 시계열 키워드 트렌드, 언론사 간 이슈 비교,
+       논조(감성) 추이를 바로 집계할 수 있다 (README.md 8번 항목의 pandas 예시 참고).
 
 [자동 실행]
     매일 오전 9시 자동 실행은 install_task_scheduler.bat 으로 Windows 작업 스케줄러에
@@ -62,6 +70,11 @@ News_analytics.py
          라이브 크롤링을 직접 검증하지 못한 상태로 작성되었다. 형태소 분석·차트·
          워드클라우드·CSV 저장 파이프라인은 샘플 데이터로 정상 동작을 확인했지만,
          실제 네이버 페이지 HTML 구조(선택자)는 이 확인을 거쳐야 확실해진다.
+
+    ②-1 (최초 1회) 누적 분석에는 pandas 가 필요하다. ①의 requirements.txt 설치에
+       포함돼 있지만, 혹시 누락되면 `python Trend_analytics.py` 실행 시 오류가 나므로
+       그때는 `pip install pandas` 로 설치한다. 누적 분석만 따로 돌려보려면
+       실행파일 폴더에서 `python Trend_analytics.py --days 30` 을 실행하면 된다.
 
     ③ (선택) 매일 자동 실행이 필요하면 News\\실행파일\\install_task_scheduler.bat 을
        더블클릭한다 (Windows 작업 스케줄러에 매일 09:00 실행 작업이 등록된다).
@@ -114,6 +127,8 @@ CACHE_DIR = BASE_DIR / "_cache"                    # 언론사 oid 캐시 등
 DEBUG_DIR = BASE_DIR / "_debug"                    # 파싱 실패 시 원본 HTML 저장
 LOG_DIR = BASE_DIR / "logs"
 MASTER_CSV = BASE_DIR / "insight_master.csv"       # 전체 통합 인사이트 CSV (대시보드용)
+TREND_DIR = BASE_DIR / "누적분석"                   # 누적(시계열) 분석 산출물 폴더
+TREND_DAYS = 30   # 누적 분석 기간(일). 데이터가 더 짧으면 쌓인 만큼만 사용한다.
 
 # ---- 분석 대상 언론사 -------------------------------------------------
 # hwp 원본 대상: 매일신문, 문화일보, 조선일보 등 + 확장 대상: 데일리안, 아시아경제
@@ -1298,8 +1313,13 @@ def upsert_csv_row(csv_path: Path, row: dict,
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
             if reader.fieldnames:
-                fieldnames = reader.fieldnames
+                fieldnames = list(reader.fieldnames)
                 existing = list(reader)
+                # 컬럼이 새로 늘어난 경우(예: 감성 지표 추가) 기존 헤더 뒤에 이어 붙인다.
+                # 기존 행에는 빈 값이 들어가므로, 예전 기록을 잃지 않고 스키마만 확장된다.
+                for key in row:
+                    if key not in fieldnames:
+                        fieldnames.append(key)
 
     key = tuple(str(row.get(k, "")) for k in key_fields)
     kept = [r for r in existing
@@ -1347,6 +1367,9 @@ def process_one(press: str, category: str, oid: str, date_obj: datetime, debug: 
 
         insight_text = generate_insight(press, category, date_str, articles, counter)
         top5 = counter.most_common(5)
+        # 감성 지표를 인사이트 행에 함께 남긴다. 그래야 insight_master.csv 한 파일만으로
+        # 키워드 추이와 논조(감성) 추이를 같은 축에서 시계열로 볼 수 있다.
+        stat = sentiment_stats(counter)
         row = {
             "날짜": date_str,
             "언론사": press,
@@ -1356,6 +1379,10 @@ def process_one(press: str, category: str, oid: str, date_obj: datetime, debug: 
             "인사이트": insight_text,
             "생성시각": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "상태": "성공" if articles else "기사없음",
+            "키워드종수": len(counter),
+            "긍정총빈도": stat["pos_total"],
+            "부정총빈도": stat["neg_total"],
+            "감성지수": stat["index"],
         }
 
         upsert_csv_row(out_dir / f"{press}_{category}_insight.csv", row)
@@ -1371,6 +1398,7 @@ def process_one(press: str, category: str, oid: str, date_obj: datetime, debug: 
             "날짜": date_str, "언론사": press, "카테고리": category,
             "기사수": 0, "상위키워드": "", "인사이트": f"오류: {e}",
             "생성시각": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "상태": "실패",
+            "키워드종수": 0, "긍정총빈도": 0, "부정총빈도": 0, "감성지수": 0.0,
         }
         try:
             upsert_csv_row(MASTER_CSV, row)
@@ -1391,6 +1419,10 @@ def parse_args():
     p.add_argument("--debug", action="store_true", help="디버그 모드 (기사 0건 시 원본 HTML 저장 + 상세 로그)")
     p.add_argument("--no-fulltext", action="store_true",
                     help="기사 본문 수집을 건너뛰고 제목만으로 분석 (빠른 테스트용, 요청 수 절감)")
+    p.add_argument("--no-trend", action="store_true",
+                    help="하루 분석 후 이어지는 누적(시계열) 트렌드 분석을 건너뛴다")
+    p.add_argument("--trend-days", type=int, default=TREND_DAYS,
+                    help=f"누적 트렌드 분석 기간(일). 기본 {TREND_DAYS}일")
     return p.parse_args()
 
 
@@ -1449,6 +1481,20 @@ def main():
     # 개별 조합 처리가 모두 끝난 뒤, 하루치를 취합한 일간 종합 산출물을 만든다.
     # 이번 실행에 없는 조합은 디스크에 저장된 기존 결과에서 채워 넣는다.
     build_daily_summary(records, date_obj)
+
+    # 하루치 산출물이 확정된 뒤, 날짜를 가로지르는 누적(시계열) 분석을 이어서 만든다.
+    # 별도 크롤링 없이 저장된 결과만 다시 읽으므로 빠르고, 실패하더라도 당일 분석
+    # 결과에는 영향이 없도록 예외를 여기서 흡수한다.
+    if not args.no_trend:
+        try:
+            from Trend_analytics import run_trend_analysis
+            run_trend_analysis(base_dir=BASE_DIR, days=args.trend_days,
+                                until=date_obj, logger=log)
+        except ImportError:
+            log.warning("누적 트렌드 분석 생략: Trend_analytics.py 를 찾지 못했습니다 "
+                        "(News_analytics.py 와 같은 폴더에 있어야 합니다).")
+        except Exception as e:
+            log.warning("누적 트렌드 분석 중 오류가 발생해 건너뜁니다: %s", e)
 
     log.info("=" * 60)
     log.info("분석 종료: 성공 %d건 / 실패 %d건 / 건너뜀 %d건", success, fail, skipped)
