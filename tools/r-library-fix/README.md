@@ -8,13 +8,25 @@
   LoadLibrary failure:  지정된 프로시저를 찾을 수 없습니다.
 ```
 
-## 사용법 (3단계)
-1. **RStudio와 R 창을 모두 닫습니다.** DLL 파일이 사용 중이면 삭제할 수 없습니다.
-2. 이 폴더의 `fix_r_library.bat`와 `fix_r_library.R` 두 파일을 **같은 폴더**에 둡니다.
+## 사용법
+
+### 방법 A: RGui에 한 줄 붙여 넣기 (권장, 2026-09-28 실제 복구에 사용)
+1. **RStudio를 닫습니다.** DLL 파일이 사용 중이면 삭제할 수 없습니다.
+2. 시작 메뉴에서 **R x64 4.6.1** (RGui)을 엽니다.
+3. 콘솔에 아래 한 줄을 붙여 넣고 Enter를 누릅니다.
+   ```r
+   source("https://raw.githubusercontent.com/cjs700/naver-news-analytics/main/tools/r-library-fix/fix_r_library.R", encoding = "UTF-8")
+   ```
+4. `==== 성공: library(dplyr) 정상 로드 ====`가 보이면 RGui를 닫고 RStudio에서 `library(dplyr)`를 실행하세요.
+
+### 방법 B: 배치 파일 더블클릭
+1. **RStudio와 R 창을 모두 닫습니다.**
+2. `fix_r_library.bat`와 `fix_r_library.R` 두 파일을 **같은 폴더**에 둡니다.
    예: `C:\R\fix\`. 가능하면 경로에 한글이 없는 폴더를 쓰세요.
+   - 받은 파일 이름이 `fix_r_library.bat.txt`이면 끝의 `.txt`를 지워야 실행됩니다.
+     파일 탐색기 → 보기 → 표시 → **파일 확장명**을 켜면 확장자가 보입니다.
 3. `fix_r_library.bat`를 **더블클릭**합니다.
    - 작업이 끝나면 로그(`C:\R\fix_r_library_log.txt`)가 메모장으로 열립니다.
-   - `==== 성공 ====`이 보이면 RStudio를 열고 `library(dplyr)`를 실행하세요.
 
 ## 스크립트가 하는 일
 | 단계 | 내용 |
