@@ -70,6 +70,37 @@ try {
     }
     Write-Log "데이터 파일 $copied 개 동기화 완료"
 
+    # ── 4-1. 일간종합 그래프 PNG 4종 (2026-11-15 분부터) ─────────
+    #  저장소 용량을 고려해 일 단위 종합 그래프만 올린다(하루 약 1.1MB).
+    #  가장 최근 날짜의 4종은 images\latest 에 고정 이름으로도 복사해
+    #  README 첫 화면에 항상 최신 그래프가 보이게 한다.
+    $PNG_FROM = "20261115"
+    $pngs = Get-ChildItem -Path $SRC -Directory | Where-Object { $_.Name -match '^\d{4}$' } | ForEach-Object {
+        Get-ChildItem -Path $_.FullName -Recurse -File -Filter "일간종합_*.png" |
+          Where-Object { $_.Name -match '_(\d{8})\.png$' -and $Matches[1] -ge $PNG_FROM }
+    }
+    $pngCount = 0
+    foreach ($p in $pngs) {
+        $rel = $p.FullName.Substring($SRC.Length + 1)
+        $target = Join-Path $DST $rel
+        $dir = Split-Path $target -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        Copy-Item $p.FullName $target -Force
+        $pngCount++
+    }
+    if ($pngs) {
+        $latestDay = ($pngs | ForEach-Object { if ($_.Name -match '_(\d{8})\.png$') { $Matches[1] } } |
+                      Sort-Object -Descending | Select-Object -First 1)
+        $latestDir = Join-Path $DST "images\latest"
+        if (-not (Test-Path $latestDir)) { New-Item -ItemType Directory -Force -Path $latestDir | Out-Null }
+        foreach ($kind in @("빈도수_barplot_TOP20", "빈도수_wordcloud", "감성분석_barplot", "감성분석_wordcloud")) {
+            $f = $pngs | Where-Object { $_.Name -eq "일간종합_${kind}_$latestDay.png" } | Select-Object -First 1
+            if ($f) { Copy-Item $f.FullName (Join-Path $latestDir "$kind.png") -Force }
+        }
+        Set-Content -Path (Join-Path $latestDir "date.txt") -Value $latestDay -Encoding UTF8
+        Write-Log "그래프 PNG $pngCount 개 동기화 (최신 $latestDay)"
+    }
+
     # ── 5. 변경사항 확인 ────────────────────────────────────────
     $status = & $GIT -C $DST status --porcelain
     if (-not $status) {
@@ -88,6 +119,21 @@ try {
     & $GIT -C $DST commit -q -m $msg
     if ($LASTEXITCODE -ne 0) { Write-Log "[실패] git commit 오류 (exit $LASTEXITCODE)"; exit 1 }
 
+    # ── 6-1. GitHub 쪽 변경을 먼저 받아 합치기 ─────────────────
+    #  GitHub 웹이나 다른 PC에서 파일을 추가하면 push 가 "rejected"로
+    #  막힌다(2026-09-28 사례). push 전에 원격 변경을 병합해 이를 막는다.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $pull = (& $GIT -C $DST pull --no-rebase --no-edit origin main 2>&1 | Out-String).Trim()
+    $pullExit = $LASTEXITCODE
+    if ($pullExit -ne 0) { & $GIT -C $DST merge --abort 2>&1 | Out-Null }
+    $ErrorActionPreference = $prevEAP
+    if ($pullExit -ne 0) {
+        Write-Log "[실패] GitHub 변경사항 병합 오류 (exit $pullExit): $pull"
+        Write-Log "        같은 파일을 양쪽에서 고쳐 충돌했을 수 있습니다. 수동 병합이 필요합니다."
+        exit 1
+    }
+
     # ── 7. 업로드 ──────────────────────────────────────────────
     #  git push 는 정상 동작 중에도 진행상황을 stderr 로 출력한다.
     #  ErrorActionPreference=Stop 상태에서 2>&1 로 받으면 PowerShell 이 이를
@@ -100,7 +146,11 @@ try {
 
     if ($pushExit -ne 0) {
         Write-Log "[실패] git push 오류 (exit $pushExit): $push"
-        Write-Log "        GitHub 인증이 풀렸을 수 있습니다. gh auth status 로 확인하세요."
+        if ($push -match "Authentication failed|Invalid username|could not read Username") {
+            Write-Log "        GitHub 로그인이 만료됐습니다. github_재연결.bat 을 더블클릭해 다시 로그인하세요."
+        } else {
+            Write-Log "        원격 저장소와 맞지 않습니다. github_재연결.bat 을 실행하거나 수동 확인이 필요합니다."
+        }
         exit 1
     }
 
