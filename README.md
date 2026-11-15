@@ -5,14 +5,14 @@ hwp 원본 기획서(`NAVER 뉴스 분석.hwp`) 내용을 기반으로 제작된
 ## 📊 최신 일간 분석 (매일 10:00 자동 갱신)
 
 조선일보·문화일보·매일신문·데일리안·아시아경제 5개 언론사 × 8개 카테고리 기사를 합산한 결과입니다.
-분석 기준일은 [`images/latest/date.txt`](images/latest/date.txt), 날짜별 그래프는 `{YYYY}/{MM}/{DD}/일간종합_*.jpg` 에 최근 13개월치를 보관합니다
+분석 기준일은 [`images/latest/date.txt`](images/latest/date.txt), 날짜별 그래프는 `{YYYY}/{MM}/{DD}/일간종합_*` (막대그래프 PNG·워드클라우드 JPG)에 최근 13개월치를 보관합니다
 (원본 PNG 는 Google Drive 에만 보관, csv 는 기간 제한 없이 누적).
 
 | 키워드 빈도 TOP20 | 키워드 워드클라우드 |
 | :---: | :---: |
-| ![빈도수 막대그래프](images/latest/빈도수_barplot_TOP20.jpg) | ![빈도수 워드클라우드](images/latest/빈도수_wordcloud.jpg) |
+| ![빈도수 막대그래프](images/latest/빈도수_barplot_TOP20.png) | ![빈도수 워드클라우드](images/latest/빈도수_wordcloud.jpg) |
 | **감성어 빈도** | **감성어 워드클라우드** |
-| ![감성분석 막대그래프](images/latest/감성분석_barplot.jpg) | ![감성분석 워드클라우드](images/latest/감성분석_wordcloud.jpg) |
+| ![감성분석 막대그래프](images/latest/감성분석_barplot.png) | ![감성분석 워드클라우드](images/latest/감성분석_wordcloud.jpg) |
 
 ## 1. 기능 요약
 

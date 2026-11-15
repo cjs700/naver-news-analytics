@@ -43,7 +43,9 @@ _github_diag.log
 _github_reconnect.log
 github_재연결.bat
 
-# ── 예외: 일간종합 그래프 4종(JPG, 최근 13개월)과 README용 최신 그래프만 올린다 ──
-!/[0-9][0-9][0-9][0-9]/**/일간종합_*.jpg
-!/images/latest/*.jpg
+# ── 예외: 일간종합 그래프 4종(막대 PNG·워드클라우드 JPG, 최근 13개월)과 README용 최신 그래프만 올린다 ──
+!/[0-9][0-9][0-9][0-9]/**/일간종합_*_wordcloud_*.jpg
+!/[0-9][0-9][0-9][0-9]/**/일간종합_*_barplot*.png
+!/images/latest/*_wordcloud.jpg
+!/images/latest/*_barplot*.png
 지금_업로드.bat

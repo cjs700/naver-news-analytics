@@ -70,20 +70,23 @@ try {
     }
     Write-Log "데이터 파일 $copied 개 동기화 완료"
 
-    # ── 4-1. 일간종합 그래프 4종 → JPG 로 변환해 업로드 ────────────
-    #  G 드라이브 원본 PNG 는 그대로 두고, 저장소에는 JPG(품질 85)만 올린다.
-    #  (PNG 하루 약 1.1MB → JPG 약 0.3~0.4MB, 저장소가 1GB 에 닿는 시점을 약 5년 뒤로 늦춤)
-    #  보관 기간: 최근 395일(13개월). 그보다 오래된 날짜의 JPG 는 저장소에서 지운다.
-    #  csv 는 이 규칙과 무관하게 계속 쌓는다. 5년쯤 뒤 히스토리 정리는 수동으로 한다.
+    # ── 4-1. 일간종합 그래프 4종 업로드 (막대그래프 PNG + 워드클라우드 JPG) ──
+    #  - 막대그래프 2종: 단색 면이 넓어 PNG 가 더 작으므로 원본 PNG 그대로 복사
+    #  - 워드클라우드 2종: JPG(품질 75)로 변환 (PNG 대비 약 60% 절감)
+    #  하루 약 0.45MB → 저장소가 1GB 에 닿는 시점을 약 5년 뒤로 늦춘다.
+    #  보관 기간: 최근 395일(13개월). 그보다 오래된 날짜의 그래프는 저장소에서 지운다.
+    #  G 드라이브 원본 PNG 는 건드리지 않고, csv 는 이 규칙과 무관하게 계속 쌓는다.
+    #  5년쯤 뒤 저장소 히스토리 정리는 수동으로 한다.
     $IMG_FROM  = "20261115"                                   # 그래프 업로드 시작일
     $KEEP_DAYS = 395                                          # 저장소 보관 기간(일)
+    $JPG_Q     = 75                                           # 워드클라우드 JPG 품질
     $cutoff    = (Get-Date).AddDays(-$KEEP_DAYS).ToString("yyyyMMdd")
     $minDay    = if ($IMG_FROM -gt $cutoff) { $IMG_FROM } else { $cutoff }
 
     Add-Type -AssemblyName System.Drawing
     $jpgCodec  = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq "image/jpeg" }
     $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
-    $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]85)
+    $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]$JPG_Q)
     function Save-AsJpg([string]$srcPath, [string]$dstPath) {
         $img = [System.Drawing.Image]::FromFile($srcPath)
         try {
@@ -96,46 +99,66 @@ try {
             $bmp.Dispose()
         } finally { $img.Dispose() }
     }
+    function Get-ImgTargetName([string]$name) {               # 업로드할 파일 이름(확장자 결정)
+        if ($name -like "*wordcloud*") { return ($name -replace '\.png$', '.jpg') }
+        return $name
+    }
 
-    # (1) 보관 기간 안의 PNG 를 JPG 로 변환 (이미 최신 JPG 가 있으면 건너뜀)
+    # JPG 품질을 바꾸면 보관 기간 안의 워드클라우드를 모두 다시 변환한다
+    $imgDir = Join-Path $DST "images"
+    if (-not (Test-Path $imgDir)) { New-Item -ItemType Directory -Force -Path $imgDir | Out-Null }
+    $qFile = Join-Path $imgDir "jpg_quality.txt"
+    $forceJpg = -not ((Test-Path $qFile) -and ((Get-Content $qFile -Raw).Trim() -eq "$JPG_Q"))
+
+    # (1) 보관 기간 안의 그래프 복사/변환 (이미 최신이면 건너뜀)
     $pngs = Get-ChildItem -Path $SRC -Directory | Where-Object { $_.Name -match '^\d{4}$' } | ForEach-Object {
         Get-ChildItem -Path $_.FullName -Recurse -File -Filter "일간종합_*.png" |
           Where-Object { $_.Name -match '_(\d{8})\.png$' -and $Matches[1] -ge $minDay }
     }
-    $jpgCount = 0
+    $imgCount = 0
     foreach ($p in $pngs) {
-        $rel = $p.FullName.Substring($SRC.Length + 1) -replace '\.png$', '.jpg'
-        $target = Join-Path $DST $rel
-        if ((Test-Path $target) -and ((Get-Item $target).LastWriteTime -ge $p.LastWriteTime)) { continue }
+        $relDir = Split-Path ($p.FullName.Substring($SRC.Length + 1)) -Parent
+        $target = Join-Path (Join-Path $DST $relDir) (Get-ImgTargetName $p.Name)
+        $isJpg  = $target -like "*.jpg"
+        $fresh  = (Test-Path $target) -and ((Get-Item $target).LastWriteTime -ge $p.LastWriteTime)
+        if ($fresh -and -not ($isJpg -and $forceJpg)) { continue }
         $dir = Split-Path $target -Parent
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-        Save-AsJpg $p.FullName $target
-        $jpgCount++
+        if ($isJpg) { Save-AsJpg $p.FullName $target } else { Copy-Item $p.FullName $target -Force }
+        $imgCount++
     }
+    Set-Content -Path $qFile -Value "$JPG_Q" -Encoding ASCII
 
-    # (2) 저장소 정리: 예전 방식 PNG 와 보관 기간이 지난 JPG 삭제 (G 드라이브 원본은 건드리지 않음)
+    # (2) 저장소 정리: 형식이 바뀐 파일(막대그래프 JPG, 워드클라우드 PNG)과 보관 기간이 지난 그래프 삭제
     $removed = 0
     Get-ChildItem -Path $DST -Directory | Where-Object { $_.Name -match '^\d{4}$' } | ForEach-Object {
         Get-ChildItem -Path $_.FullName -Recurse -File -Filter "일간종합_*" | Where-Object {
-            $_.Extension -eq ".png" -or
-            ($_.Extension -eq ".jpg" -and $_.Name -match '_(\d{8})\.jpg$' -and $Matches[1] -lt $cutoff)
+            ($_.Extension -eq ".png" -or $_.Extension -eq ".jpg") -and (
+                ($_.Extension -eq ".jpg" -and $_.Name -notlike "*wordcloud*") -or
+                ($_.Extension -eq ".png" -and $_.Name -like "*wordcloud*") -or
+                ($_.Name -match '_(\d{8})\.(png|jpg)$' -and $Matches[1] -lt $cutoff))
         } | ForEach-Object { Remove-Item $_.FullName -Force; $removed++ }
     }
-    $latestDir = Join-Path $DST "images\latest"
-    if (-not (Test-Path $latestDir)) { New-Item -ItemType Directory -Force -Path $latestDir | Out-Null }
-    Get-ChildItem -Path $latestDir -File -Filter "*.png" | ForEach-Object { Remove-Item $_.FullName -Force; $removed++ }
 
     # (3) 가장 최근 날짜의 4종을 images\latest 에 고정 이름으로 복사 (README 첫 화면용)
+    $latestDir = Join-Path $imgDir "latest"
+    if (-not (Test-Path $latestDir)) { New-Item -ItemType Directory -Force -Path $latestDir | Out-Null }
+    Get-ChildItem -Path $latestDir -File | Where-Object {
+        ($_.Extension -eq ".jpg" -and $_.Name -notlike "*wordcloud*") -or
+        ($_.Extension -eq ".png" -and $_.Name -like "*wordcloud*")
+    } | ForEach-Object { Remove-Item $_.FullName -Force; $removed++ }
     if ($pngs) {
         $latestDay = ($pngs | ForEach-Object { if ($_.Name -match '_(\d{8})\.png$') { $Matches[1] } } |
                       Sort-Object -Descending | Select-Object -First 1)
+        $d = $latestDay
+        $dayDir = Join-Path $DST ("{0}\{1}\{2}" -f $d.Substring(0,4), $d.Substring(4,2), $d.Substring(6,2))
         foreach ($kind in @("빈도수_barplot_TOP20", "빈도수_wordcloud", "감성분석_barplot", "감성분석_wordcloud")) {
-            $d = $latestDay
-            $j = Join-Path $DST ("{0}\{1}\{2}\일간종합_{3}_{4}.jpg" -f $d.Substring(0,4), $d.Substring(4,2), $d.Substring(6,2), $kind, $d)
-            if (Test-Path $j) { Copy-Item $j (Join-Path $latestDir "$kind.jpg") -Force }
+            $name = Get-ImgTargetName "일간종합_${kind}_$d.png"
+            $src  = Join-Path $dayDir $name
+            if (Test-Path $src) { Copy-Item $src (Join-Path $latestDir ($kind + [IO.Path]::GetExtension($name))) -Force }
         }
         Set-Content -Path (Join-Path $latestDir "date.txt") -Value $latestDay -Encoding UTF8
-        Write-Log "그래프 JPG $jpgCount 개 변환, 정리 $removed 개 (최신 $latestDay, 보관 $cutoff 이후)"
+        Write-Log "그래프 $imgCount 개 갱신, 정리 $removed 개 (최신 $latestDay, 보관 $cutoff 이후, JPG 품질 $JPG_Q)"
     }
 
     # ── 5. 변경사항 확인 ────────────────────────────────────────
